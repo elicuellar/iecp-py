@@ -1,0 +1,106 @@
+"""CLI Module -- Phase 8 of the IECP protocol.
+
+The daemon integration toolchain that bridges external AI agents to the IECP
+server via WebSocket + MCP over stdio (§10.1, §10.2, §10.3).
+"""
+
+from .mcp.mcp_server import McpServer, McpServerDeps
+from .mcp.stream_accumulator import StreamAccumulator
+from .mcp.tools import IECP_TOOLS
+from .mcp.types import (
+    JsonRpcRequest,
+    JsonRpcResponse,
+    JsonRpcSuccessResponse,
+    JsonRpcErrorResponse,
+    McpToolDefinition,
+    McpToolCallParams,
+    McpToolResult,
+    McpInitializeResult,
+    McpServerInfo,
+    McpCapabilities,
+)
+from .ws.websocket_client import WebSocketClient, WebSocketClientConfig
+from .ws.types import (
+    # Client -> Server
+    AuthenticateMessage,
+    GetRoomStatusMessage,
+    FetchUnreadBatchMessage,
+    FetchHistoryMessage,
+    AcquireLockMessage,
+    AppendStreamChunkMessage,
+    CommitMessageMessage,
+    YieldFloorMessage,
+    ReportActionMessage,
+    SignalAttentionMessage,
+    ProposeDecisionMessage,
+    HandoffToMessage,
+    DisconnectMessage,
+    ClientMessage,
+    # Server -> Client
+    AuthenticatedResponse,
+    ErrorResponse,
+    RoomStatusResponse,
+    UnreadBatchResponse,
+    HistoryResponse,
+    LockAcquiredResponse,
+    ChunkAckResponse,
+    CommitResponse,
+    YieldResponse,
+    ActionResponse,
+    SignalResponse,
+    DecisionResponse,
+    HandoffResponse,
+    NewBatchNotification,
+    ServerMessage,
+)
+from .commands.send import execute_send, SendOptions
+
+__all__ = [
+    "McpServer",
+    "McpServerDeps",
+    "StreamAccumulator",
+    "IECP_TOOLS",
+    "JsonRpcRequest",
+    "JsonRpcResponse",
+    "JsonRpcSuccessResponse",
+    "JsonRpcErrorResponse",
+    "McpToolDefinition",
+    "McpToolCallParams",
+    "McpToolResult",
+    "McpInitializeResult",
+    "McpServerInfo",
+    "McpCapabilities",
+    "WebSocketClient",
+    "WebSocketClientConfig",
+    "AuthenticateMessage",
+    "GetRoomStatusMessage",
+    "FetchUnreadBatchMessage",
+    "FetchHistoryMessage",
+    "AcquireLockMessage",
+    "AppendStreamChunkMessage",
+    "CommitMessageMessage",
+    "YieldFloorMessage",
+    "ReportActionMessage",
+    "SignalAttentionMessage",
+    "ProposeDecisionMessage",
+    "HandoffToMessage",
+    "DisconnectMessage",
+    "ClientMessage",
+    "AuthenticatedResponse",
+    "ErrorResponse",
+    "RoomStatusResponse",
+    "UnreadBatchResponse",
+    "HistoryResponse",
+    "LockAcquiredResponse",
+    "ChunkAckResponse",
+    "CommitResponse",
+    "YieldResponse",
+    "ActionResponse",
+    "SignalResponse",
+    "DecisionResponse",
+    "HandoffResponse",
+    "NewBatchNotification",
+    "ServerMessage",
+    "execute_send",
+    "SendOptions",
+]
