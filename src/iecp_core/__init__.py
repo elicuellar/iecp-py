@@ -134,6 +134,28 @@ from .context import (
     TokenEstimator,
 )
 from .utils import compare_ulids, extract_timestamp, generate_id
+from .observability import (
+    ConversationMetrics,
+    DEFAULT_RATE_LIMITER_CONFIG,
+    DEFAULT_TRACE_LOGGER_CONFIG,
+    EntityMetrics,
+    MetricsCollector,
+    PercentileStats,
+    RateLimitCheck,
+    RateLimiter,
+    RateLimiterConfig,
+    SystemMetrics,
+    TraceLogger,
+    TraceLoggerConfig,
+    TraceQuery,
+    TraceStats,
+)
+from .api import (
+    AppServices,
+    ApiKeyStore,
+    ArtificerRegistration,
+    create_app,
+)
 from .gateway import (
     ConnectionManager,
     DaemonBuffer,
@@ -283,4 +305,22 @@ __all__ = [
     "StreamChunk",
     "StreamChunkEvent",
     "context_to_messages",
+    "ConversationMetrics",
+    "DEFAULT_RATE_LIMITER_CONFIG",
+    "DEFAULT_TRACE_LOGGER_CONFIG",
+    "EntityMetrics",
+    "MetricsCollector",
+    "PercentileStats",
+    "RateLimitCheck",
+    "RateLimiter",
+    "RateLimiterConfig",
+    "SystemMetrics",
+    "TraceLogger",
+    "TraceLoggerConfig",
+    "TraceQuery",
+    "TraceStats",
+    "AppServices",
+    "ApiKeyStore",
+    "ArtificerRegistration",
+    "create_app",
 ]
