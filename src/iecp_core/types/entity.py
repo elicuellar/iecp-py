@@ -19,6 +19,7 @@ class EntityCapabilities(BaseModel):
     can_moderate: bool = False
     response_latency: ResponseLatency = "medium"
     supported_adapters: list[AdapterType] = []
+    domains: list[str] = []
 
 
 class Entity(BaseModel):
