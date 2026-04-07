@@ -327,8 +327,8 @@ class E2EHarness:
         self.orchestrator.on("dispatch", _on_dispatch)
 
         # Wire runtime message_committed → orchestrator
-        def _on_message_committed(evt: Any) -> None:
-            self.orchestrator.handle_response_commit(
+        async def _on_message_committed(evt: Any) -> None:
+            await self.orchestrator.handle_response_commit(
                 evt.conversation_id, evt.entity_id, evt.event
             )
 
@@ -402,8 +402,11 @@ class E2EHarness:
 
     def cleanup(self) -> None:
         self.orchestrator.destroy()
-        self._debouncer.destroy()
-        self.floor_lock.destroy()
+        # debouncer.destroy() and floor_lock.destroy() are async but we schedule them
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(self._debouncer.destroy())
+            asyncio.ensure_future(self.floor_lock.destroy())
         self._signal_manager.destroy()
         self._handoff_manager.destroy()
 
@@ -715,7 +718,7 @@ class TestFullStackE2E:
         h.register_artificer(art1)
 
         # Manually acquire lock
-        h.floor_lock.acquire(
+        await h.floor_lock.acquire(
             LockRequest(
                 entity_id=EntityId(art1),
                 conversation_id=ConversationId(conv_id),
@@ -733,7 +736,7 @@ class TestFullStackE2E:
         assert len(traces) >= 1
 
         # Release lock
-        h.floor_lock.release(
+        await h.floor_lock.release(
             ConversationId(conv_id), EntityId(art1), "commit"
         )
 

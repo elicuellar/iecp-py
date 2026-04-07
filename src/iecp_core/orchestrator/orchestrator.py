@@ -7,6 +7,7 @@ cascade tracking, rate limiting, escalation, and round-robin.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
@@ -154,7 +155,7 @@ class Orchestrator:
 
     # -- Public API ----------------------------------------------------------
 
-    def handle_incoming_event(self, event: Event) -> None:
+    async def handle_incoming_event(self, event: Event) -> None:
         """Handle an incoming event from the event log.
 
         Routes human events to the debouncer and handles
@@ -192,22 +193,22 @@ class Orchestrator:
                 self._floor_lock.is_locked(event.conversation_id)
                 and event.type == "message"
             ):
-                self._floor_lock.handle_human_interrupt(event.conversation_id)
+                await self._floor_lock.handle_human_interrupt(event.conversation_id)
                 self._emit("human_interrupt", event.conversation_id)
 
             # Pass to debouncer
-            self._debouncer.handle_event(event)
+            await self._debouncer.handle_event(event)
             return
 
-    def handle_typing_start(
+    async def handle_typing_start(
         self, conversation_id: ConversationId, author_id: EntityId
     ) -> None:
         """Handle a typing_start signal from a human."""
         if self._destroyed:
             return
-        self._debouncer.handle_typing_start(conversation_id, author_id)
+        await self._debouncer.handle_typing_start(conversation_id, author_id)
 
-    def handle_response_commit(
+    async def handle_response_commit(
         self,
         conversation_id: ConversationId,
         entity_id: EntityId,
@@ -223,7 +224,7 @@ class Orchestrator:
         state = self._get_or_create_state(conversation_id)
 
         # 1. Release the floor lock
-        self._floor_lock.release(conversation_id, entity_id, "commit")
+        await self._floor_lock.release(conversation_id, entity_id, "commit")
 
         # 2. Increment hourly invocation counter
         state.hourly_invocation_count += 1
@@ -242,7 +243,7 @@ class Orchestrator:
 
         # 6. Evaluate cascade
         if response_event.ai_depth_counter + 1 < self._config.max_cascade_depth:
-            self._run_pipeline_for_ai_response(response_event)
+            await self._run_pipeline_for_ai_response(response_event)
         else:
             self._emit(
                 "cascade_limit",
@@ -260,13 +261,13 @@ class Orchestrator:
 
     # -- Pipeline ------------------------------------------------------------
 
-    def _on_batch_sealed(self, batch: SealedBatch) -> None:
+    async def _on_batch_sealed(self, batch: SealedBatch) -> None:
         """Batch sealed callback -- triggers the orchestration pipeline."""
         if self._destroyed:
             return
-        self._run_pipeline(batch)
+        await self._run_pipeline(batch)
 
-    def _run_pipeline(self, batch: SealedBatch) -> None:
+    async def _run_pipeline(self, batch: SealedBatch) -> None:
         """Run the full orchestration pipeline for a sealed batch."""
         start_time = time.time() * 1000.0
         trace_id = generate_id()
@@ -391,7 +392,7 @@ class Orchestrator:
                 return
 
             # 4. Acquire lock
-            lock_result = self._floor_lock.acquire(
+            lock_result = await self._floor_lock.acquire(
                 LockRequest(
                     entity_id=routing.selected_entity,
                     conversation_id=batch.conversation_id,
@@ -461,7 +462,7 @@ class Orchestrator:
                 lock_result,
             )
 
-    def _run_pipeline_for_ai_response(self, response_event: Event) -> None:
+    async def _run_pipeline_for_ai_response(self, response_event: Event) -> None:
         """Run the pipeline for an AI response (cascade evaluation).
         AI responses skip debouncing -- they trigger directly.
         """
@@ -568,7 +569,7 @@ class Orchestrator:
                 return
 
             # Acquire lock
-            lock_result = self._floor_lock.acquire(
+            lock_result = await self._floor_lock.acquire(
                 LockRequest(
                     entity_id=routing.selected_entity,
                     conversation_id=conversation_id,

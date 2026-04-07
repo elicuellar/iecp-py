@@ -33,7 +33,7 @@ def create_lock_router(services: Any, key_store: Any) -> APIRouter:
         body = await request.json()
         _validate_required(body, ["entityId"])
 
-        result = services.floor_lock.acquire(
+        result = await services.floor_lock.acquire(
             LockRequest(
                 entity_id=EntityId(body["entityId"]),
                 conversation_id=ConversationId(conv_id),
@@ -60,7 +60,7 @@ def create_lock_router(services: Any, key_store: Any) -> APIRouter:
         body = await request.json()
         _validate_required(body, ["entityId"])
 
-        services.floor_lock.release(
+        await services.floor_lock.release(
             ConversationId(conv_id),
             EntityId(body["entityId"]),
             "commit",

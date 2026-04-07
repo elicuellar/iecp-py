@@ -7,6 +7,7 @@ independent timer and adaptive cadence tracker.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -95,6 +96,12 @@ class Debouncer:
         self._listeners: dict[str, set[Callable[..., Any]]] = {}
         self._destroyed: bool = False
 
+        # Capture the event loop at construction time for cross-thread _emit.
+        try:
+            self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
     # -- Public API ----------------------------------------------------------
 
     def on(self, event: str, listener: Callable[..., Any]) -> None:
@@ -109,7 +116,7 @@ class Debouncer:
         if listeners:
             listeners.discard(listener)
 
-    def handle_event(self, event: Event) -> None:
+    async def handle_event(self, event: Event) -> None:
         """Handle an incoming event from the event log.
 
         Only message events from human authors are debounced.
@@ -150,7 +157,7 @@ class Debouncer:
             batch.timer_handle = self._start_timer(key)
             self._active_batches[key] = batch
 
-    def handle_typing_start(
+    async def handle_typing_start(
         self, conversation_id: ConversationId, author_id: EntityId
     ) -> None:
         """Handle a typing_start signal from a human.
@@ -170,7 +177,7 @@ class Debouncer:
         self._timer.clear_timeout(existing.timer_handle)
         existing.timer_handle = self._start_timer(key)
 
-    def destroy(self) -> None:
+    async def destroy(self) -> None:
         """Destroy the debouncer -- clear all active timers and state.
 
         After calling destroy(), the debouncer will not process
@@ -208,7 +215,12 @@ class Debouncer:
         return self._timer.set_timeout(lambda: self._on_timer_fire(key), delay)
 
     def _on_timer_fire(self, key: SlotKey) -> None:
-        """Called when a debounce timer fires."""
+        """Called when a debounce timer fires.
+
+        This is called synchronously by the timer provider. It handles
+        the batch sealing logic synchronously, but uses _emit_sync to
+        dispatch to listeners (which may schedule async work).
+        """
         if self._destroyed:
             return
 
@@ -257,9 +269,26 @@ class Debouncer:
         history.last_message_at = now
 
     def _emit(self, event: str, *args: Any) -> None:
-        """Emit a debouncer event to all registered listeners."""
+        """Emit a debouncer event to all registered listeners.
+
+        Supports both sync and async listeners. Async listeners
+        are scheduled as tasks on the running event loop, or via
+        ``call_soon_threadsafe`` when called from a timer thread.
+        """
         listeners = self._listeners.get(event)
         if not listeners:
             return
-        for listener in listeners:
-            listener(*args)
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        for listener in list(listeners):
+            if asyncio.iscoroutinefunction(listener):
+                if running_loop is not None:
+                    asyncio.ensure_future(listener(*args))
+                elif self._loop is not None and self._loop.is_running():
+                    asyncio.run_coroutine_threadsafe(listener(*args), self._loop)
+            else:
+                listener(*args)

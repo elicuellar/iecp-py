@@ -124,7 +124,7 @@ def create_event_router(services: Any, key_store: Any) -> APIRouter:
 
         # Feed to orchestrator pipeline
         if services.orchestrator:
-            services.orchestrator.handle_incoming_event(persisted)
+            await services.orchestrator.handle_incoming_event(persisted)
 
         return JSONResponse(status_code=201, content=_event_to_dict(persisted))
 

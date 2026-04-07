@@ -6,6 +6,7 @@ for the smart debouncing engine.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from dataclasses import dataclass, field
@@ -81,10 +82,30 @@ class TimerProvider(Protocol):
 
 
 class DefaultTimerProvider:
-    """Default timer provider using threading.Timer and time.time."""
+    """Default timer provider using threading.Timer.
+
+    Callbacks are pushed onto the asyncio event loop (if one is running)
+    via ``call_soon_threadsafe`` so that any ``asyncio.ensure_future``
+    calls inside the callback succeed.  If no loop is running the
+    callback executes directly in the timer thread (useful for tests
+    that don't have a running loop).
+    """
 
     def set_timeout(self, callback: Callable[[], None], ms: float) -> threading.Timer:
-        t = threading.Timer(ms / 1000.0, callback)
+        # Capture the running loop at schedule time so we can push
+        # the callback back onto it when the timer fires.
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        def _on_fire() -> None:
+            if loop is not None and loop.is_running():
+                loop.call_soon_threadsafe(callback)
+            else:
+                callback()
+
+        t = threading.Timer(ms / 1000.0, _on_fire)
         t.daemon = True
         t.start()
         return t

@@ -6,6 +6,7 @@ Uses mock dependencies and a FakeTimerProvider for deterministic timer behavior.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -254,10 +255,14 @@ class OrchestratorTestContext:
 
         self.conversation_manager.add_conversation(conversation, participants)
 
+    async def advance_and_process(self, ms: float) -> None:
+        """Advance the timer and process any async tasks that were scheduled."""
+        self.timer.advance(ms)
+        # Allow async tasks scheduled by _emit (via asyncio.ensure_future) to run
+        await asyncio.sleep(0)
+
     def destroy(self) -> None:
         self.orchestrator.destroy()
-        self.debouncer.destroy()
-        self.floor_lock.destroy()
 
 
 def _make_human_message(
@@ -291,16 +296,16 @@ def _make_ai_event(
 
 
 class TestFullPipeline:
-    def test_dispatches_ai_when_human_sends_message_auto_mode(self) -> None:
+    async def test_dispatches_ai_when_human_sends_message_auto_mode(self) -> None:
         ctx = OrchestratorTestContext()
         ctx.setup_conversation()
 
         event = _make_human_message()
         ctx.event_store.add_events(event)
-        ctx.orchestrator.handle_incoming_event(event)
+        await ctx.orchestrator.handle_incoming_event(event)
 
         # Advance timers to trigger debounce seal
-        ctx.timer.advance(200)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.dispatches) == 1
         assert ctx.dispatches[0].entity_id == AI_A
@@ -310,7 +315,7 @@ class TestFullPipeline:
 
         ctx.destroy()
 
-    def test_produces_a_trace_even_when_no_eligible_entities(self) -> None:
+    async def test_produces_a_trace_even_when_no_eligible_entities(self) -> None:
         ctx = OrchestratorTestContext(
             config=OrchestratorConfig(default_respondent_mode="mentioned_only")
         )
@@ -318,9 +323,9 @@ class TestFullPipeline:
 
         event = _make_human_message()  # no mentions
         ctx.event_store.add_events(event)
-        ctx.orchestrator.handle_incoming_event(event)
+        await ctx.orchestrator.handle_incoming_event(event)
 
-        ctx.timer.advance(200)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.dispatches) == 0
         assert len(ctx.traces) == 1
@@ -330,7 +335,7 @@ class TestFullPipeline:
 
 
 class TestGating:
-    def test_blocks_dispatch_when_cascade_depth_is_reached(self) -> None:
+    async def test_blocks_dispatch_when_cascade_depth_is_reached(self) -> None:
         ctx = OrchestratorTestContext(
             config=OrchestratorConfig(
                 max_cascade_depth=2,
@@ -347,8 +352,8 @@ class TestGating:
 
         event = _make_human_message()
         ctx.event_store.add_events(event)
-        ctx.orchestrator.handle_incoming_event(event)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event)
+        await ctx.advance_and_process(200)
 
         # First dispatch should work (depth 0)
         assert len(ctx.dispatches) == 1
@@ -359,7 +364,7 @@ class TestGating:
         )
         ctx.event_store.add_events(ai_response)
 
-        ctx.orchestrator.handle_response_commit(
+        await ctx.orchestrator.handle_response_commit(
             conversation_id=CONV_ID,
             entity_id=AI_A,
             response_event=ai_response,
@@ -370,7 +375,7 @@ class TestGating:
 
         ctx.destroy()
 
-    def test_blocks_when_rate_limit_is_exceeded(self) -> None:
+    async def test_blocks_when_rate_limit_is_exceeded(self) -> None:
         ctx = OrchestratorTestContext(
             config=OrchestratorConfig(
                 max_ai_invocations_per_hour=1,
@@ -382,14 +387,14 @@ class TestGating:
         # First message -- should dispatch
         event1 = _make_human_message(text="First")
         ctx.event_store.add_events(event1)
-        ctx.orchestrator.handle_incoming_event(event1)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event1)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.dispatches) == 1
 
         # Simulate AI response commit (increments hourly counter)
         ai_resp = _make_ai_event(text="Done", ai_depth_counter=0)
-        ctx.orchestrator.handle_response_commit(
+        await ctx.orchestrator.handle_response_commit(
             conversation_id=CONV_ID,
             entity_id=AI_A,
             response_event=ai_resp,
@@ -398,8 +403,8 @@ class TestGating:
         # Second message -- should be rate-limited
         event2 = _make_human_message(text="Second")
         ctx.event_store.add_events(event2)
-        ctx.orchestrator.handle_incoming_event(event2)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event2)
+        await ctx.advance_and_process(200)
 
         # Only 1 dispatch total (second was gated)
         assert len(ctx.dispatches) == 1
@@ -413,14 +418,14 @@ class TestGating:
 
 
 class TestHumanInterruption:
-    def test_releases_lock_and_emits_human_interrupt(self) -> None:
+    async def test_releases_lock_and_emits_human_interrupt(self) -> None:
         ctx = OrchestratorTestContext()
         ctx.setup_conversation()
 
         event1 = _make_human_message(text="Start")
         ctx.event_store.add_events(event1)
-        ctx.orchestrator.handle_incoming_event(event1)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event1)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.dispatches) == 1
         assert ctx.floor_lock.is_locked(CONV_ID) is True
@@ -428,7 +433,7 @@ class TestHumanInterruption:
         # Human interrupts
         interrupt = _make_human_message(text="Wait, actually...")
         ctx.event_store.add_events(interrupt)
-        ctx.orchestrator.handle_incoming_event(interrupt)
+        await ctx.orchestrator.handle_incoming_event(interrupt)
 
         assert CONV_ID in ctx.human_interrupts
         assert ctx.floor_lock.is_locked(CONV_ID) is False
@@ -437,7 +442,7 @@ class TestHumanInterruption:
 
 
 class TestEscalation:
-    def test_human_message_clears_escalation_before_dispatch(self) -> None:
+    async def test_human_message_clears_escalation_before_dispatch(self) -> None:
         ctx = OrchestratorTestContext()
         ctx.setup_conversation(
             entities=[
@@ -464,13 +469,13 @@ class TestEscalation:
             created_at=_NOW,
         )
 
-        ctx.orchestrator.handle_incoming_event(handoff_event)
+        await ctx.orchestrator.handle_incoming_event(handoff_event)
 
         # Now try a new message -- human clears escalation, dispatch should proceed
         msg = _make_human_message(text="Test while escalated")
         ctx.event_store.add_events(msg)
-        ctx.orchestrator.handle_incoming_event(msg)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(msg)
+        await ctx.advance_and_process(200)
 
         # The human message clears escalation, so dispatch should proceed
         assert len(ctx.dispatches) == 1
@@ -479,14 +484,14 @@ class TestEscalation:
 
 
 class TestPostResponseCommit:
-    def test_releases_lock_and_increments_counters_on_commit(self) -> None:
+    async def test_releases_lock_and_increments_counters_on_commit(self) -> None:
         ctx = OrchestratorTestContext()
         ctx.setup_conversation()
 
         event = _make_human_message()
         ctx.event_store.add_events(event)
-        ctx.orchestrator.handle_incoming_event(event)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.dispatches) == 1
         assert ctx.floor_lock.is_locked(CONV_ID) is True
@@ -494,7 +499,7 @@ class TestPostResponseCommit:
         # Commit response
         ai_resp = _make_ai_event(text="Response", ai_depth_counter=0)
 
-        ctx.orchestrator.handle_response_commit(
+        await ctx.orchestrator.handle_response_commit(
             conversation_id=CONV_ID,
             entity_id=AI_A,
             response_event=ai_resp,
@@ -507,7 +512,7 @@ class TestPostResponseCommit:
 
 
 class TestCascade:
-    def test_allows_ai_to_ai_cascade_up_to_max_depth(self) -> None:
+    async def test_allows_ai_to_ai_cascade_up_to_max_depth(self) -> None:
         ctx = OrchestratorTestContext(
             config=OrchestratorConfig(
                 max_cascade_depth=3,
@@ -525,8 +530,8 @@ class TestCascade:
         # Human sends message -> AI dispatched (depth 0)
         event = _make_human_message()
         ctx.event_store.add_events(event)
-        ctx.orchestrator.handle_incoming_event(event)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.dispatches) == 1
 
@@ -536,7 +541,7 @@ class TestCascade:
         )
         ctx.event_store.add_events(ai_resp1)
 
-        ctx.orchestrator.handle_response_commit(
+        await ctx.orchestrator.handle_response_commit(
             conversation_id=CONV_ID,
             entity_id=AI_A,
             response_event=ai_resp1,
@@ -551,7 +556,7 @@ class TestCascade:
 
 
 class TestErrorHandling:
-    def test_emits_error_and_trace_when_event_store_fails(self) -> None:
+    async def test_emits_error_and_trace_when_event_store_fails(self) -> None:
         ctx = OrchestratorTestContext()
         ctx.setup_conversation()
 
@@ -565,8 +570,8 @@ class TestErrorHandling:
 
         event = _make_human_message()
         ctx.event_store.add_events(event)
-        ctx.orchestrator.handle_incoming_event(event)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.errors) == 1
         assert ctx.errors[0].code == "PIPELINE_ERROR"
@@ -578,7 +583,7 @@ class TestErrorHandling:
 
 
 class TestConcurrentLimit:
-    def test_blocks_second_dispatch_when_concurrent_limit_is_1(self) -> None:
+    async def test_blocks_second_dispatch_when_concurrent_limit_is_1(self) -> None:
         ctx = OrchestratorTestContext(
             config=OrchestratorConfig(
                 max_concurrent_ai_processing=1,
@@ -596,8 +601,8 @@ class TestConcurrentLimit:
         # First message dispatches AI
         event1 = _make_human_message(text="First", mentions=[AI_A])
         ctx.event_store.add_events(event1)
-        ctx.orchestrator.handle_incoming_event(event1)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event1)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.dispatches) == 1
 
@@ -608,7 +613,7 @@ class TestConcurrentLimit:
 
 
 class TestTraceEmission:
-    def test_every_pipeline_run_produces_a_trace(self) -> None:
+    async def test_every_pipeline_run_produces_a_trace(self) -> None:
         ctx = OrchestratorTestContext(
             config=OrchestratorConfig(default_respondent_mode="mentioned_only")
         )
@@ -617,14 +622,14 @@ class TestTraceEmission:
         # No mention -> no_eligible trace
         event1 = _make_human_message(text="No mention")
         ctx.event_store.add_events(event1)
-        ctx.orchestrator.handle_incoming_event(event1)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event1)
+        await ctx.advance_and_process(200)
 
         # With mention -> dispatched trace
         event2 = _make_human_message(text="Hey @AI", mentions=[AI_A])
         ctx.event_store.add_events(event2)
-        ctx.orchestrator.handle_incoming_event(event2)
-        ctx.timer.advance(200)
+        await ctx.orchestrator.handle_incoming_event(event2)
+        await ctx.advance_and_process(200)
 
         assert len(ctx.traces) == 2
         assert ctx.traces[0].outcome == "no_eligible"

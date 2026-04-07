@@ -362,8 +362,8 @@ class ChaosHarness:
         self.orchestrator.on("dispatch", _on_dispatch)
 
         # Wire runtime message_committed → orchestrator
-        def _on_message_committed(evt: Any) -> None:
-            self.orchestrator.handle_response_commit(
+        async def _on_message_committed(evt: Any) -> None:
+            await self.orchestrator.handle_response_commit(
                 evt.conversation_id, evt.entity_id, evt.event
             )
 
@@ -418,8 +418,11 @@ class ChaosHarness:
 
     def cleanup(self) -> None:
         self.orchestrator.destroy()
-        self._debouncer.destroy()
-        self.floor_lock.destroy()
+        # debouncer.destroy() and floor_lock.destroy() are async but we schedule them
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(self._debouncer.destroy())
+            asyncio.ensure_future(self.floor_lock.destroy())
         self._signal_manager.destroy()
         self._handoff_manager.destroy()
 
@@ -582,7 +585,7 @@ class TestErrorRecoveryChaosE2E:
         human_eid = EntityId(human_id)
 
         # Acquire lock for artId
-        lock_result = h.floor_lock.acquire(
+        lock_result = await h.floor_lock.acquire(
             LockRequest(
                 entity_id=art_eid,
                 conversation_id=conv_cid,
@@ -594,7 +597,7 @@ class TestErrorRecoveryChaosE2E:
         assert h.floor_lock.is_locked(conv_cid) is True
 
         # Verify humanId cannot acquire while lock is held
-        deny_result = h.floor_lock.acquire(
+        deny_result = await h.floor_lock.acquire(
             LockRequest(
                 entity_id=human_eid,
                 conversation_id=conv_cid,
@@ -605,12 +608,12 @@ class TestErrorRecoveryChaosE2E:
         assert deny_result.granted is False
 
         # Force-release artId lock -- humanId is queued, so it auto-grants to humanId
-        h.floor_lock.release(conv_cid, art_eid, "force_release")
+        await h.floor_lock.release(conv_cid, art_eid, "force_release")
         # Lock is now auto-granted to queued humanId
         assert h.floor_lock.is_locked(conv_cid) is True
 
         # Release humanId -- now fully free
-        h.floor_lock.release(conv_cid, human_eid, "commit")
+        await h.floor_lock.release(conv_cid, human_eid, "commit")
         assert h.floor_lock.is_locked(conv_cid) is False
 
         h.cleanup()
@@ -714,7 +717,7 @@ class TestErrorRecoveryChaosE2E:
         art2_eid = EntityId(art2_id)
 
         # Acquire lock for artId
-        lock1 = h.floor_lock.acquire(
+        lock1 = await h.floor_lock.acquire(
             LockRequest(
                 entity_id=art_eid,
                 conversation_id=conv_cid,
@@ -725,7 +728,7 @@ class TestErrorRecoveryChaosE2E:
         assert lock1.granted is True
 
         # art2Id cannot acquire -- artId holds it
-        lock2 = h.floor_lock.acquire(
+        lock2 = await h.floor_lock.acquire(
             LockRequest(
                 entity_id=art2_eid,
                 conversation_id=conv_cid,
@@ -736,7 +739,7 @@ class TestErrorRecoveryChaosE2E:
         assert lock2.granted is False
 
         # artId can re-acquire its own (extends TTL)
-        lock3 = h.floor_lock.acquire(
+        lock3 = await h.floor_lock.acquire(
             LockRequest(
                 entity_id=art_eid,
                 conversation_id=conv_cid,
@@ -748,9 +751,9 @@ class TestErrorRecoveryChaosE2E:
         assert h.floor_lock.is_locked(conv_cid) is True
 
         # Release artId -- art2Id was queued, so auto-granted
-        h.floor_lock.release(conv_cid, art_eid, "commit")
+        await h.floor_lock.release(conv_cid, art_eid, "commit")
         assert h.floor_lock.is_locked(conv_cid) is True
-        h.floor_lock.release(conv_cid, art2_eid, "commit")
+        await h.floor_lock.release(conv_cid, art2_eid, "commit")
         assert h.floor_lock.is_locked(conv_cid) is False
 
         h.cleanup()

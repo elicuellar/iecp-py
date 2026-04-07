@@ -6,6 +6,7 @@ per conversation at any time. Uses a TimerProvider for testable timers.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -78,6 +79,12 @@ class FloorLock:
             "lock_released": [],
         }
 
+        # Capture the event loop at construction time for cross-thread _emit.
+        try:
+            self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
     # -- Event Emitter -------------------------------------------------------
 
     def on(self, event: str, listener: Callable[..., Any]) -> None:
@@ -93,10 +100,28 @@ class FloorLock:
             listeners.remove(listener)
 
     def _emit(self, event: str, payload: Any) -> None:
-        """Emit an event to all registered listeners."""
+        """Emit an event to all registered listeners.
+
+        Supports both sync and async listeners. Async listeners
+        are scheduled as tasks on the running event loop, or via
+        ``run_coroutine_threadsafe`` when called from a timer thread.
+        """
         listeners = self._listeners.get(event)
-        if listeners:
-            for listener in listeners:
+        if not listeners:
+            return
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        for listener in list(listeners):
+            if asyncio.iscoroutinefunction(listener):
+                if running_loop is not None:
+                    asyncio.ensure_future(listener(payload))
+                elif self._loop is not None and self._loop.is_running():
+                    asyncio.run_coroutine_threadsafe(listener(payload), self._loop)
+            else:
                 listener(payload)
 
     # -- State Helpers -------------------------------------------------------
@@ -151,7 +176,7 @@ class FloorLock:
 
     # -- Acquire -------------------------------------------------------------
 
-    def acquire(self, request: LockRequest) -> LockResult:
+    async def acquire(self, request: LockRequest) -> LockResult:
         """Request the Floor Lock for a conversation.
 
         - Free lock -> grant immediately.
@@ -294,7 +319,7 @@ class FloorLock:
 
     # -- Release -------------------------------------------------------------
 
-    def release(
+    async def release(
         self,
         conversation_id: ConversationId,
         entity_id: EntityId,
@@ -369,7 +394,7 @@ class FloorLock:
 
     # -- Human Interruption --------------------------------------------------
 
-    def handle_human_interrupt(self, conversation_id: ConversationId) -> bool:
+    async def handle_human_interrupt(self, conversation_id: ConversationId) -> bool:
         """Handle a human interruption on a conversation.
 
         Immediately releases the lock, clears the queue, and emits
@@ -453,7 +478,7 @@ class FloorLock:
 
     # -- Cleanup -------------------------------------------------------------
 
-    def destroy(self) -> None:
+    async def destroy(self) -> None:
         """Destroy the FloorLock, clearing all timers and state."""
         for state in self._conversations.values():
             self._clear_timers(state)

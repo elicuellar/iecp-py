@@ -116,7 +116,10 @@ class ArtificerRuntime:
         listeners = self._listeners.get(event)
         if listeners:
             for cb in listeners:
-                cb(payload)
+                if asyncio.iscoroutinefunction(cb):
+                    asyncio.ensure_future(cb(payload))
+                else:
+                    cb(payload)
 
     # -- Public API -----------------------------------------------------------
 
@@ -185,7 +188,7 @@ class ArtificerRuntime:
             ),
         )
 
-        self._floor_lock.release(conversation_id, invocation.entity_id, "human_interrupt")
+        await self._floor_lock.release(conversation_id, invocation.entity_id, "human_interrupt")
         del self._active_invocations[conversation_id]
 
     def is_processing(self, conversation_id: ConversationId) -> bool:
@@ -288,7 +291,7 @@ class ArtificerRuntime:
                         ),
                     )
                     await self._event_store.append_event(system_event)
-                    self._floor_lock.release(conversation_id, entity_id, "commit")
+                    await self._floor_lock.release(conversation_id, entity_id, "commit")
                     return
 
                 # 5. Commit message event
@@ -312,7 +315,7 @@ class ArtificerRuntime:
                 )
 
                 # 6. Release the lock
-                self._floor_lock.release(conversation_id, entity_id, "commit")
+                await self._floor_lock.release(conversation_id, entity_id, "commit")
                 return
 
             except Exception as exc:
@@ -341,4 +344,4 @@ class ArtificerRuntime:
             data={"error": str(last_error) if last_error else None},
         )
         await self._event_store.append_event(fail_event)
-        self._floor_lock.release(conversation_id, entity_id, "commit")
+        await self._floor_lock.release(conversation_id, entity_id, "commit")

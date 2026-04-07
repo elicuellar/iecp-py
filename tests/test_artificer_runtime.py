@@ -182,7 +182,7 @@ def make_mock_context_builder() -> Any:
 
 def make_mock_floor_lock() -> Any:
     mock = MagicMock()
-    mock.release = MagicMock(return_value=True)
+    mock.release = AsyncMock(return_value=True)
     return mock
 
 
