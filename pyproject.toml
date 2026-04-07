@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "iecp-core"
 version = "0.1.0"
 description = "IECP Core - Inter-Entity Communication Protocol foundation"
+license = "AGPL-3.0-only"
 requires-python = ">=3.11"
 dependencies = [
     "python-ulid>=3.0.0",
