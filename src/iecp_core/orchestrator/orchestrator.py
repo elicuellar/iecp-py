@@ -40,32 +40,31 @@ from .types import (
 )
 
 
-# -- Sync Protocols ----------------------------------------------------------
-# The orchestrator pipeline runs synchronously (triggered by debouncer
-# callbacks). These protocols define the sync interface the orchestrator
-# needs from its dependencies.
+# -- Async Protocols ---------------------------------------------------------
+# These protocols define the async interface the orchestrator needs from its
+# dependencies.
 
 
-class SyncEventStore(Protocol):
-    """Synchronous event store interface for the orchestrator."""
+class OrchestratorEventStore(Protocol):
+    """Async event store interface for the orchestrator."""
 
-    def get_by_id_sync(self, event_id: EventId) -> Event | None: ...
-
-
-class SyncEntityManager(Protocol):
-    """Synchronous entity manager interface for the orchestrator."""
-
-    def get_entity_sync(self, entity_id: EntityId) -> Entity | None: ...
+    async def get_by_id(self, event_id: EventId) -> Event | None: ...
 
 
-class SyncConversationManager(Protocol):
-    """Synchronous conversation manager interface for the orchestrator."""
+class OrchestratorEntityManager(Protocol):
+    """Async entity manager interface for the orchestrator."""
 
-    def get_conversation_sync(
+    async def get_entity(self, entity_id: EntityId) -> Entity | None: ...
+
+
+class OrchestratorConversationManager(Protocol):
+    """Async conversation manager interface for the orchestrator."""
+
+    async def get_conversation(
         self, conversation_id: ConversationId
     ) -> Conversation | None: ...
 
-    def get_participants_sync(
+    async def get_participants(
         self, conversation_id: ConversationId
     ) -> list[Participant]: ...
 
@@ -98,9 +97,9 @@ class Orchestrator:
         self,
         debouncer: Debouncer,
         floor_lock: FloorLock,
-        event_store: SyncEventStore,
-        entity_manager: SyncEntityManager,
-        conversation_manager: SyncConversationManager,
+        event_store: OrchestratorEventStore,
+        entity_manager: OrchestratorEntityManager,
+        conversation_manager: OrchestratorConversationManager,
         config: OrchestratorConfig | None = None,
     ) -> None:
         self._config: OrchestratorConfig = config or DEFAULT_ORCHESTRATOR_CONFIG
@@ -285,16 +284,16 @@ class Orchestrator:
 
         try:
             # 1. Load context
-            conversation = self._conversation_manager.get_conversation_sync(
+            conversation = await self._conversation_manager.get_conversation(
                 batch.conversation_id
             )
-            participants = self._conversation_manager.get_participants_sync(
+            participants = await self._conversation_manager.get_participants(
                 batch.conversation_id
             )
 
             events_result: list[Event] = []
             for event_id in batch.event_ids:
-                evt = self._event_store.get_by_id_sync(event_id)
+                evt = await self._event_store.get_by_id(event_id)
                 if evt:
                     events_result.append(evt)
 
@@ -322,7 +321,7 @@ class Orchestrator:
             # Build entity map from participants
             entities: dict[EntityId, Entity] = {}
             for p in participants:
-                entity = self._entity_manager.get_entity_sync(p.entity_id)
+                entity = await self._entity_manager.get_entity(p.entity_id)
                 if entity:
                     entities[p.entity_id] = entity
 
@@ -486,10 +485,10 @@ class Orchestrator:
         lock_result: LockResult | None = None
 
         try:
-            conversation = self._conversation_manager.get_conversation_sync(
+            conversation = await self._conversation_manager.get_conversation(
                 conversation_id
             )
-            participants = self._conversation_manager.get_participants_sync(
+            participants = await self._conversation_manager.get_participants(
                 conversation_id
             )
 
@@ -498,7 +497,7 @@ class Orchestrator:
 
             entities: dict[EntityId, Entity] = {}
             for p in participants:
-                entity = self._entity_manager.get_entity_sync(p.entity_id)
+                entity = await self._entity_manager.get_entity(p.entity_id)
                 if entity:
                     entities[p.entity_id] = entity
 

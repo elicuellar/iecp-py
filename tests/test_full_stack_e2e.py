@@ -94,9 +94,6 @@ class _CombinedEventStore:
                 object.__setattr__(event, "status", status)
                 break
 
-    def get_by_id_sync(self, event_id: EventId) -> Event | None:
-        return next((e for e in self._events if e.id == event_id), None)
-
     async def append_event(self, event: Event) -> Event:
         return await self.append(event)
 
@@ -129,8 +126,6 @@ class _CombinedEntityRepository:
     async def list(self) -> list[Entity]:
         return list(self._entities.values())
 
-    def get_entity_sync(self, entity_id: EntityId) -> Entity | None:
-        return self._entities.get(entity_id)
 
 
 class _CombinedConversationRepository:
@@ -154,18 +149,6 @@ class _CombinedConversationRepository:
         self._convs[conversation_id] = updated
         return updated
 
-    def get_conversation_sync(
-        self, conversation_id: ConversationId
-    ) -> Conversation | None:
-        return self._convs.get(conversation_id)
-
-    def get_participants_sync(
-        self, conversation_id: ConversationId
-    ) -> list[Participant]:
-        conv = self._convs.get(conversation_id)
-        if conv is None:
-            return []
-        return list(conv.participants)
 
 
 class _CombinedCursorRepository:
@@ -183,34 +166,6 @@ class _CombinedCursorRepository:
     async def save(self, cursor: EntityCursor) -> EntityCursor:
         self._cursors[self._key(cursor.entity_id, cursor.conversation_id)] = cursor
         return cursor
-
-
-# ─── Entity/Conversation Manager Sync Wrappers ───────────────
-
-
-class _SyncEntityManager(EntityManager):
-    def __init__(self, repo: _CombinedEntityRepository) -> None:
-        super().__init__(repo)
-        self._combined = repo
-
-    def get_entity_sync(self, entity_id: EntityId) -> Entity | None:
-        return self._combined.get_entity_sync(entity_id)
-
-
-class _SyncConversationManager(ConversationManager):
-    def __init__(self, repo: _CombinedConversationRepository) -> None:
-        super().__init__(repo)
-        self._combined = repo
-
-    def get_conversation_sync(
-        self, conversation_id: ConversationId
-    ) -> Conversation | None:
-        return self._combined.get_conversation_sync(conversation_id)
-
-    def get_participants_sync(
-        self, conversation_id: ConversationId
-    ) -> list[Participant]:
-        return self._combined.get_participants_sync(conversation_id)
 
 
 # ─── Mock Model Provider ─────────────────────────────────────
@@ -256,8 +211,8 @@ class E2EHarness:
         cursor_repo = _CombinedCursorRepository()
         self.event_store = _CombinedEventStore()
 
-        self._entity_manager = _SyncEntityManager(entity_repo)
-        conversation_manager = _SyncConversationManager(conversation_repo)
+        self._entity_manager = EntityManager(entity_repo)
+        conversation_manager = ConversationManager(conversation_repo)
         cursor_manager = CursorManager(cursor_repo)
 
         self.floor_lock = FloorLock()

@@ -100,10 +100,6 @@ class _CombinedEventStore:
                 object.__setattr__(event, "status", status)
                 break
 
-    # Sync access for orchestrator
-    def get_by_id_sync(self, event_id: EventId) -> Event | None:
-        return next((e for e in self._events if e.id == event_id), None)
-
     # Adapter for ArtificerRuntime
     async def append_event(self, event: Event) -> Event:
         return await self.append(event)
@@ -139,9 +135,6 @@ class _CombinedEntityRepository:
     async def list(self) -> list[Entity]:
         return list(self._entities.values())
 
-    # Sync access for orchestrator
-    def get_entity_sync(self, entity_id: EntityId) -> Entity | None:
-        return self._entities.get(entity_id)
 
 
 class _CombinedConversationRepository:
@@ -167,19 +160,6 @@ class _CombinedConversationRepository:
         self._convs[conversation_id] = updated
         return updated
 
-    # Sync access for orchestrator
-    def get_conversation_sync(
-        self, conversation_id: ConversationId
-    ) -> Conversation | None:
-        return self._convs.get(conversation_id)
-
-    def get_participants_sync(
-        self, conversation_id: ConversationId
-    ) -> list[Participant]:
-        conv = self._convs.get(conversation_id)
-        if conv is None:
-            return []
-        return list(conv.participants)
 
 
 class _CombinedCursorRepository:
@@ -197,41 +177,6 @@ class _CombinedCursorRepository:
     async def save(self, cursor: EntityCursor) -> EntityCursor:
         self._cursors[self._key(cursor.entity_id, cursor.conversation_id)] = cursor
         return cursor
-
-
-# ─── Entity Manager Sync Wrapper ─────────────────────────────
-
-
-class _SyncCapableEntityManager(EntityManager):
-    """EntityManager that also exposes sync access for the orchestrator."""
-
-    def __init__(self, repository: _CombinedEntityRepository) -> None:
-        super().__init__(repository)
-        self._combined_repo = repository
-
-    def get_entity_sync(self, entity_id: EntityId) -> Entity | None:
-        return self._combined_repo.get_entity_sync(entity_id)
-
-
-# ─── Conversation Manager Sync Wrapper ───────────────────────
-
-
-class _SyncCapableConversationManager(ConversationManager):
-    """ConversationManager that also exposes sync access for the orchestrator."""
-
-    def __init__(self, repository: _CombinedConversationRepository) -> None:
-        super().__init__(repository)
-        self._combined_repo = repository
-
-    def get_conversation_sync(
-        self, conversation_id: ConversationId
-    ) -> Conversation | None:
-        return self._combined_repo.get_conversation_sync(conversation_id)
-
-    def get_participants_sync(
-        self, conversation_id: ConversationId
-    ) -> list[Participant]:
-        return self._combined_repo.get_participants_sync(conversation_id)
 
 
 # ─── Mock Model Providers ─────────────────────────────────────
@@ -296,8 +241,8 @@ class ChaosHarness:
         cursor_repo = _CombinedCursorRepository()
         self.event_store = _CombinedEventStore()
 
-        entity_manager = _SyncCapableEntityManager(entity_repo)
-        conversation_manager = _SyncCapableConversationManager(conversation_repo)
+        entity_manager = EntityManager(entity_repo)
+        conversation_manager = ConversationManager(conversation_repo)
         cursor_manager = CursorManager(cursor_repo)
 
         self.floor_lock = FloorLock()

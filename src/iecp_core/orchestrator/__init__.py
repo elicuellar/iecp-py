@@ -1,7 +1,7 @@
 """Orchestrator -- Phase 4: AI Dispatch Orchestration."""
 
 from .gating import GatingParams, evaluate_gating
-from .orchestrator import Orchestrator, SyncConversationManager, SyncEntityManager, SyncEventStore
+from .orchestrator import Orchestrator, OrchestratorConversationManager, OrchestratorEntityManager, OrchestratorEventStore
 from .routing import RoutingParams, resolve_routing
 from .types import (
     DEFAULT_ORCHESTRATOR_CONFIG,
@@ -28,9 +28,9 @@ __all__ = [
     "RoutingDecision",
     "RoutingParams",
     "RoutingRule",
-    "SyncConversationManager",
-    "SyncEntityManager",
-    "SyncEventStore",
+    "OrchestratorConversationManager",
+    "OrchestratorEntityManager",
+    "OrchestratorEventStore",
     "evaluate_gating",
     "resolve_routing",
 ]

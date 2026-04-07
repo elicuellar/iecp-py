@@ -88,7 +88,7 @@ _NOW = datetime.now(timezone.utc).isoformat()
 
 
 class MockEventStore:
-    """Mock event store with sync access."""
+    """Mock event store with async access."""
 
     def __init__(self) -> None:
         self._events: dict[EventId, Event] = {}
@@ -97,12 +97,12 @@ class MockEventStore:
         for event in events:
             self._events[event.id] = event
 
-    def get_by_id_sync(self, event_id: EventId) -> Event | None:
+    async def get_by_id(self, event_id: EventId) -> Event | None:
         return self._events.get(event_id)
 
 
 class MockEntityManager:
-    """Mock entity manager with sync access."""
+    """Mock entity manager with async access."""
 
     def __init__(self) -> None:
         self._entities: dict[EntityId, Entity] = {}
@@ -110,12 +110,12 @@ class MockEntityManager:
     def add_entity(self, entity: Entity) -> None:
         self._entities[entity.id] = entity
 
-    def get_entity_sync(self, entity_id: EntityId) -> Entity | None:
+    async def get_entity(self, entity_id: EntityId) -> Entity | None:
         return self._entities.get(entity_id)
 
 
 class MockConversationManager:
-    """Mock conversation manager with sync access."""
+    """Mock conversation manager with async access."""
 
     def __init__(self) -> None:
         self._conversations: dict[ConversationId, Conversation] = {}
@@ -127,12 +127,12 @@ class MockConversationManager:
         self._conversations[conversation.id] = conversation
         self._participants[conversation.id] = participants
 
-    def get_conversation_sync(
+    async def get_conversation(
         self, conversation_id: ConversationId
     ) -> Conversation | None:
         return self._conversations.get(conversation_id)
 
-    def get_participants_sync(
+    async def get_participants(
         self, conversation_id: ConversationId
     ) -> list[Participant]:
         return self._participants.get(conversation_id, [])
@@ -560,13 +560,13 @@ class TestErrorHandling:
         ctx = OrchestratorTestContext()
         ctx.setup_conversation()
 
-        # Make get_by_id_sync raise an exception
-        original_get = ctx.event_store.get_by_id_sync
+        # Make get_by_id raise an exception
+        original_get = ctx.event_store.get_by_id
 
-        def failing_get(event_id: EventId) -> Event | None:
+        async def failing_get(event_id: EventId) -> Event | None:
             raise RuntimeError("DB connection lost")
 
-        ctx.event_store.get_by_id_sync = failing_get  # type: ignore
+        ctx.event_store.get_by_id = failing_get  # type: ignore
 
         event = _make_human_message()
         ctx.event_store.add_events(event)
